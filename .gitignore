@@ -1,0 +1,14 @@
+# Source Garmin export (kept local, not for sharing)
+*.numbers
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs / scratch
+*.log
+*.tmp
