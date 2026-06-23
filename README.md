@@ -1,6 +1,6 @@
 # Project Saucony23 — Running Dashboard
 
-Interactive single-page dashboard summarizing 19 months of Garmin activity (Nov 2024 – May 2026) and a 12-week training plan to reach a 7:30 min/mile pace.
+Interactive single-page dashboard summarizing 20 months of Garmin activity (Nov 2024 – Jun 2026) and a 12-week training plan to reach a 7:30 min/mile pace.
 
 ## What's in here
 
@@ -20,15 +20,17 @@ Interactive single-page dashboard summarizing 19 months of Garmin activity (Nov 
 
 ## Key trends from the data
 
-- Pace dropped ~85 sec/mi from mid-2025 (~10:00) to spring 2026 (~8:24).
+- Pace dropped from mid-2025 (~10:00) to now (~8:38), a sustained aerobic gain over the past year.
 - Heart rate held steady at ~150 bpm while pace got faster — classic aerobic-efficiency signature.
 - Cadence climbed from ~158 to ~170 spm.
 - Monthly volume grew from ~15 mi/mo to ~50 mi/mo once training got consistent in January 2026.
+- 5-mile runs are now a regular fixture (24 of the last 120 runs), up from mostly 3.3 mi loops a year ago — the longer runs run a touch slower on average, which is expected as volume builds.
 - The 14 days following each cycling ride averaged ~7 sec/mi faster than the 14 days prior — cycling appears to be useful cross-training.
+- The 10-run average ticked up slightly in early June (8:24 → 8:38) alongside the shift to more 5-mile runs — a normal plateau, not a regression.
 
 ## Goal
 
-Sustain a 7:30 min/mile pace, starting from a current 10-run average of ~8:24 and a single-run best of 8:04. The plan covers 12 weeks of structured periodization, ending with a 5K time trial at goal pace.
+Sustain a 7:30 min/mile pace, starting from a current 10-run average of ~8:38 and a single-run best of 8:04. The plan covers 12 weeks of structured periodization, ending with a 5K time trial at goal pace.
 
 ## Stack
 
