@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jamison's Running Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2129;
+    --panel2: #232c36;
+    --text: #e6edf3;
+    --muted: #8b96a3;
+    --accent: #ff6b35;
+    --accent2: #4ec9b0;
+    --border: #2d3640;
+    --good: #4ade80;
+    --warn: #facc15;
+    --bad: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+  header { margin-bottom: 24px; }
+  h1 { margin: 0 0 4px 0; font-size: 28px; letter-spacing: -0.02em; }
+  .subtitle { color: var(--muted); font-size: 14px; }
+  h2 { font-size: 18px; margin: 0 0 16px 0; letter-spacing: -0.01em; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .stat .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat .value { font-size: 26px; font-weight: 600; margin-top: 4px; }
+  .stat .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .stat .delta { font-size: 12px; margin-top: 4px; }
+  .delta.up { color: var(--good); }
+  .delta.down { color: var(--bad); }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 900px) { .row { grid-template-columns: 1fr; } }
+  .chart-wrap { position: relative; height: 280px; }
+  .chart-wrap.tall { height: 340px; }
+  /* Calendar */
+  .calendar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  @media (max-width: 1000px) { .calendar { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px)  { .calendar { grid-template-columns: 1fr; } }
+  .cal-month {
+    background: var(--panel2);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .cal-month-label {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .cal-weekday-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+    margin-bottom: 4px;
+  }
+  .cal-weekday {
+    color: var(--muted);
+    font-size: 10px;
+    text-align: center;
+    text-transform: uppercase;
+  }
+  .cal-days {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 3px;
+  }
+  .cal-day {
+    aspect-ratio: 1;
+    border-radius: 4px;
+    background: #1f262d;
+    cursor: pointer;
+    transition: transform 0.1s;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+  }
+  .cal-day.has-activity { color: rgba(0,0,0,0.6); font-weight: 600; }
+  .cal-day:hover { transform: scale(1.25); z-index: 5; outline: 2px solid var(--text); }
+  .cal-day.empty { background: transparent; cursor: default; color: transparent; }
+  .cal-day.empty:hover { transform: none; outline: none; }
+  .cal-day.future { background: #161c22; cursor: default; color: rgba(255,255,255,0.18); }
+  .cal-day.future:hover { transform: none; outline: none; }
+  .cal-day.is-cycling { background: #3b82f6; color: rgba(255,255,255,0.95); font-weight: 600; }
+  .cal-day.is-walking { background: #475569; color: rgba(255,255,255,0.7); font-weight: 600; }
+  /* Days that have BOTH a run and a ride: pace color dominates, blue stripe at bottom */
+  .cal-day.has-cycling-marker::after {
+    content: '';
+    position: absolute;
+    left: 2px; right: 2px; bottom: 2px;
+    height: 3px;
+    border-radius: 2px;
+    background: #3b82f6;
+  }
+  .legend {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 12px;
+    justify-content: flex-end;
+  }
+  .legend-bar {
+    display: flex;
+    height: 10px;
+    width: 200px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .legend-bar > div { flex: 1; }
+  #tooltip {
+    position: absolute;
+    background: #000;
+    color: white;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 100;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    white-space: nowrap;
+  }
+  /* Plan table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  tr:hover td { background: #1f262d; }
+  td.week-col { font-weight: 600; }
+  .phase-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .phase-Base, .phase-Base-Cutback { background: #1e3a4f; color: #7dd3fc; }
+  .phase-Build, .phase-Build-Cutback { background: #3d2e5c; color: #c4b5fd; }
+  .phase-Peak { background: #5c2e4a; color: #f9a8d4; }
+  .phase-Taper { background: #5c4a2e; color: #fde68a; }
+  .insights { font-size: 14px; }
+  .insights li { margin-bottom: 8px; }
+  .insights strong { color: var(--accent2); }
+  .zone-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .zone-card {
+    background: var(--panel2);
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 3px solid var(--accent);
+  }
+  .zone-card.easy { border-left-color: #4ade80; }
+  .zone-card.long { border-left-color: #60a5fa; }
+  .zone-card.tempo { border-left-color: #fb923c; }
+  .zone-card.interval { border-left-color: #f87171; }
+  .zone-card.goal { border-left-color: #c084fc; }
+  .zone-card .name { font-weight: 600; font-size: 13px; }
+  .zone-card .pace { font-size: 18px; margin-top: 4px; }
+  .zone-card .desc { color: var(--muted); font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Jamison's Running Dashboard</h1>
+    <div class="subtitle">20 months of Garmin activity · Nov 2024 – Jun 2026 · Goal: 7:30 min/mile</div>
+  </header>
+
+  <div class="stats-grid" id="stats"></div>
+
+  <div class="panel">
+    <h2>Activity Calendar — color graded by pace</h2>
+    <div class="calendar" id="calendar"></div>
+    <div class="legend">
+      <span>Run · Faster</span>
+      <div class="legend-bar" id="legend-bar"></div>
+      <span>Slower</span>
+      <span style="margin-left:14px;">Cycling</span>
+      <div style="width:12px;height:10px;background:#3b82f6;border-radius:2px;"></div>
+      <span style="margin-left:10px;">Walking</span>
+      <div style="width:12px;height:10px;background:#475569;border-radius:2px;"></div>
+      <span style="margin-left:10px;">No activity</span>
+      <div style="width:12px;height:10px;background:#1f262d;border-radius:2px;"></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Monthly Mileage</h2>
+      <div class="chart-wrap"><canvas id="monthlyChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Average Pace by Month</h2>
+      <div class="chart-wrap"><canvas id="paceChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <h2>Per-Run Pace Trend (every run, with 5-run rolling avg)</h2>
+      <div class="chart-wrap tall"><canvas id="runPaceChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <h2>Heart Rate vs Pace</h2>
+      <div class="chart-wrap tall"><canvas id="hrPaceChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Key Trends &amp; What's Working</h2>
+    <ul class="insights" id="insights"></ul>
+  </div>
+
+  <div class="panel">
+    <h2>Training Zones to Reach 7:30</h2>
+    <p style="color:var(--muted);margin:0 0 4px 0;">Run most of your weekly volume easy — the speed comes from a small dose of well-placed quality work.</p>
+    <div class="zone-grid" id="zones"></div>
+  </div>
+
+  <div class="panel">
+    <h2>12-Week Training Plan → 7:30 min/mile</h2>
+    <p style="color:var(--muted);margin-top:0;">Built around your current ~8:38 avg and 8:04 best. Three 4-week blocks: Base → Build → Peak, finishing with a 5K time-trial.</p>
+    <div style="overflow-x:auto;">
+    <table id="planTable">
+      <thead>
+        <tr><th>Wk</th><th>Phase</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th><th>Sun</th><th>Mi</th><th>Focus</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div id="tooltip"></div>
+</div>
+
+<script>
+const DATA = {"activities": [{"type": "Running", "date": "2024-11-20", "title": "Brighton Running", "distance": 3.57, "time": "00:31:52", "pace": 8.933, "pace_str": "8:56", "best_pace": 7.133, "hr": 149.0, "cadence": 169.0, "ascent": 49.0, "calories": 376.0}, {"type": "Running", "date": "2024-12-04", "title": "Dublin Running", "distance": 3.36, "time": "00:32:10", "pace": 9.583, "pace_str": "9:35", "best_pace": 7.767, "hr": 150.0, "cadence": 162.0, "ascent": 172.0, "calories": 382.0}, {"type": "Running", "date": "2024-12-11", "title": "Dublin Running", "distance": 3.34, "time": "00:31:27", "pace": 9.417, "pace_str": "9:25", "best_pace": 8.117, "hr": 152.0, "cadence": 166.0, "ascent": 150.0, "calories": 375.0}, {"type": "Running", "date": "2025-01-13", "title": "Dublin Running", "distance": 2.53, "time": "00:25:55", "pace": 10.233, "pace_str": "10:14", "best_pace": 8.067, "hr": 137.0, "cadence": 154.0, "ascent": 107.0, "calories": 281.0}, {"type": "Running", "date": "2025-01-16", "title": "Dublin Running", "distance": 2.51, "time": "00:25:21", "pace": 10.083, "pace_str": "10:05", "best_pace": 8.35, "hr": 144.0, "cadence": 162.0, "ascent": 98.0, "calories": 288.0}, {"type": "Running", "date": "2025-01-20", "title": "Dublin Running", "distance": 3.36, "time": "00:30:55", "pace": 9.217, "pace_str": "9:13", "best_pace": 6.517, "hr": 162.0, "cadence": 162.0, "ascent": 171.0, "calories": 391.0}, {"type": "Running", "date": "2025-01-22", "title": "Dublin Running", "distance": 3.37, "time": "00:33:46", "pace": 10.033, "pace_str": "10:02", "best_pace": 7.117, "hr": 140.0, "cadence": 152.0, "ascent": 154.0, "calories": 377.0}, {"type": "Running", "date": "2025-02-11", "title": "Dublin Running", "distance": 2.52, "time": "00:24:18", "pace": 9.633, "pace_str": "9:38", "best_pace": 6.483, "hr": 146.0, "cadence": 163.0, "ascent": 117.0, "calories": 283.0}, {"type": "Running", "date": "2025-02-22", "title": "Dublin Running", "distance": 2.53, "time": "00:23:38", "pace": 9.333, "pace_str": "9:20", "best_pace": 6.833, "hr": 161.0, "cadence": 162.0, "ascent": 91.0, "calories": 297.0}, {"type": "Running", "date": "2025-02-25", "title": "Dublin Running", "distance": 2.57, "time": "00:26:00", "pace": 10.133, "pace_str": "10:08", "best_pace": 7.1, "hr": 145.0, "cadence": 150.0, "ascent": 119.0, "calories": 296.0}, {"type": "Running", "date": "2025-02-27", "title": "Dublin Running", "distance": 2.52, "time": "00:25:21", "pace": 10.05, "pace_str": "10:03", "best_pace": 8.067, "hr": 147.0, "cadence": 158.0, "ascent": 115.0, "calories": 288.0}, {"type": "Running", "date": "2025-03-01", "title": "Dublin Running", "distance": 3.37, "time": "00:30:59", "pace": 9.2, "pace_str": "9:12", "best_pace": 7.183, "hr": 157.0, "cadence": 163.0, "ascent": 178.0, "calories": 379.0}, {"type": "Running", "date": "2025-03-03", "title": "Dublin Running", "distance": 3.36, "time": "00:31:42", "pace": 9.417, "pace_str": "9:25", "best_pace": 7.45, "hr": 149.0, "cadence": 162.0, "ascent": 145.0, "calories": 367.0}, {"type": "Running", "date": "2025-03-10", "title": "Dublin Running", "distance": 2.51, "time": "00:24:47", "pace": 9.85, "pace_str": "9:51", "best_pace": 7.05, "hr": 139.0, "cadence": 160.0, "ascent": 90.0, "calories": 274.0}, {"type": "Running", "date": "2025-03-23", "title": "Dublin Running", "distance": 2.53, "time": "00:24:12", "pace": 9.567, "pace_str": "9:34", "best_pace": 7.6, "hr": 150.0, "cadence": 161.0, "ascent": 117.0, "calories": 283.0}, {"type": "Running", "date": "2025-03-25", "title": "Dublin Running", "distance": 2.54, "time": "00:25:20", "pace": 9.967, "pace_str": "9:58", "best_pace": 8.15, "hr": 151.0, "cadence": 156.0, "ascent": 116.0, "calories": 294.0}, {"type": "Running", "date": "2025-03-27", "title": "Dublin Running", "distance": 2.51, "time": "00:24:11", "pace": 9.65, "pace_str": "9:39", "best_pace": 7.083, "hr": 144.0, "cadence": 163.0, "ascent": 108.0, "calories": 274.0}, {"type": "Running", "date": "2025-03-30", "title": "Dublin Running", "distance": 3.37, "time": "00:30:39", "pace": 9.1, "pace_str": "9:06", "best_pace": 6.717, "hr": 155.0, "cadence": 163.0, "ascent": 185.0, "calories": 371.0}, {"type": "Running", "date": "2025-04-02", "title": "Dublin Running", "distance": 3.37, "time": "00:30:51", "pace": 9.15, "pace_str": "9:09", "best_pace": 6.933, "hr": 151.0, "cadence": 162.0, "ascent": 197.0, "calories": 365.0}, {"type": "Running", "date": "2025-04-05", "title": "Dublin Running", "distance": 3.36, "time": "00:30:28", "pace": 9.067, "pace_str": "9:04", "best_pace": 7.233, "hr": 157.0, "cadence": 163.0, "ascent": 175.0, "calories": 371.0}, {"type": "Walking", "date": "2025-04-13", "title": "Dublin Walking", "distance": 2.39, "time": "00:54:26", "pace": 22.8, "pace_str": "22:48", "best_pace": 13.133, "hr": 86.0, "cadence": 87.0, "ascent": 334.0, "calories": 237.0}, {"type": "Running", "date": "2025-04-29", "title": "Dublin Running", "distance": 2.54, "time": "00:24:39", "pace": 9.717, "pace_str": "9:43", "best_pace": 7.433, "hr": 157.0, "cadence": 162.0, "ascent": 112.0, "calories": 297.0}, {"type": "Running", "date": "2025-05-03", "title": "Dublin Running", "distance": 3.1, "time": "00:31:35", "pace": 10.183, "pace_str": "10:11", "best_pace": 7.933, "hr": 142.0, "cadence": 157.0, "ascent": 76.0, "calories": 348.0}, {"type": "Cycling", "date": "2025-05-04", "title": "Dublin Cycling", "distance": 13.52, "time": "01:05:21", "pace": null, "pace_str": "12.4", "best_pace": null, "hr": 138.0, "cadence": null, "ascent": 166.0, "calories": 659.0}, {"type": "Running", "date": "2025-05-05", "title": "Dublin Running", "distance": 2.03, "time": "00:19:43", "pace": 9.7, "pace_str": "9:42", "best_pace": 6.9, "hr": 152.0, "cadence": 153.0, "ascent": 128.0, "calories": 231.0}, {"type": "Running", "date": "2025-05-08", "title": "Fayette County Running", "distance": 2.32, "time": "00:21:51", "pace": 9.433, "pace_str": "9:26", "best_pace": 8.033, "hr": 150.0, "cadence": 165.0, "ascent": 91.0, "calories": 253.0}, {"type": "Running", "date": "2025-05-15", "title": "Dublin Running", "distance": 2.52, "time": "00:25:05", "pace": 9.967, "pace_str": "9:58", "best_pace": 8.183, "hr": 147.0, "cadence": 158.0, "ascent": 102.0, "calories": 284.0}, {"type": "Running", "date": "2025-05-21", "title": "Dublin Running", "distance": 2.54, "time": "00:27:50", "pace": 10.983, "pace_str": "10:59", "best_pace": 8.6, "hr": 143.0, "cadence": 154.0, "ascent": 110.0, "calories": 301.0}, {"type": "Running", "date": "2025-05-24", "title": "Dublin Running", "distance": 2.52, "time": "00:25:04", "pace": 9.95, "pace_str": "9:57", "best_pace": 8.35, "hr": 147.0, "cadence": 161.0, "ascent": 109.0, "calories": 282.0}, {"type": "Running", "date": "2025-05-26", "title": "Dublin Running", "distance": 3.34, "time": "00:32:46", "pace": 9.817, "pace_str": "9:49", "best_pace": 8.483, "hr": 145.0, "cadence": 162.0, "ascent": 147.0, "calories": 369.0}, {"type": "Running", "date": "2025-06-01", "title": "Dublin Running", "distance": 3.37, "time": "00:31:59", "pace": 9.483, "pace_str": "9:29", "best_pace": 7.2, "hr": 153.0, "cadence": 161.0, "ascent": 174.0, "calories": 376.0}, {"type": "Running", "date": "2025-06-07", "title": "Dublin Running", "distance": 3.34, "time": "00:31:40", "pace": 9.483, "pace_str": "9:29", "best_pace": 7.9, "hr": 159.0, "cadence": 163.0, "ascent": 162.0, "calories": 385.0}, {"type": "Running", "date": "2025-06-10", "title": "Scottsdale Running", "distance": 3.06, "time": "00:27:43", "pace": 9.05, "pace_str": "9:03", "best_pace": 7.433, "hr": 161.0, "cadence": 164.0, "ascent": 25.0, "calories": 346.0}, {"type": "Running", "date": "2025-06-11", "title": "Scottsdale Running", "distance": 2.84, "time": "00:31:30", "pace": 11.1, "pace_str": "11:06", "best_pace": 8.333, "hr": 141.0, "cadence": 145.0, "ascent": 21.0, "calories": 331.0}, {"type": "Running", "date": "2025-09-07", "title": "Dublin Running", "distance": 2.52, "time": "00:24:42", "pace": 9.783, "pace_str": "9:47", "best_pace": 7.133, "hr": 159.0, "cadence": 159.0, "ascent": 102.0, "calories": 290.0}, {"type": "Running", "date": "2025-09-10", "title": "Dublin Running", "distance": 2.51, "time": "00:25:56", "pace": 10.317, "pace_str": "10:19", "best_pace": 8.867, "hr": 153.0, "cadence": 162.0, "ascent": 106.0, "calories": 289.0}, {"type": "Running", "date": "2025-09-16", "title": "Brighton Running", "distance": 3.6, "time": "00:38:40", "pace": 10.733, "pace_str": "10:44", "best_pace": 6.367, "hr": 145.0, "cadence": 155.0, "ascent": 52.0, "calories": 409.0}, {"type": "Walking", "date": "2025-09-19", "title": "Dublin Walking", "distance": 1.42, "time": "00:34:46", "pace": 24.433, "pace_str": "24:26", "best_pace": 15.967, "hr": 86.0, "cadence": 88.0, "ascent": 88.0, "calories": 136.0}, {"type": "Walking", "date": "2025-09-20", "title": "Dublin Walking", "distance": 2.4, "time": "01:07:38", "pace": 28.233, "pace_str": "28:14", "best_pace": 14.983, "hr": 89.0, "cadence": 69.0, "ascent": 192.0, "calories": 270.0}, {"type": "Running", "date": "2025-09-24", "title": "Dublin Running", "distance": 2.51, "time": "00:25:42", "pace": 10.233, "pace_str": "10:14", "best_pace": 8.117, "hr": 148.0, "cadence": 163.0, "ascent": 112.0, "calories": 280.0}, {"type": "Running", "date": "2025-09-26", "title": "Dublin Running", "distance": 2.51, "time": "00:26:48", "pace": 10.65, "pace_str": "10:39", "best_pace": 9.367, "hr": 141.0, "cadence": 162.0, "ascent": 117.0, "calories": 284.0}, {"type": "Running", "date": "2025-10-06", "title": "Dublin Running", "distance": 2.51, "time": "00:26:42", "pace": 10.65, "pace_str": "10:39", "best_pace": 8.95, "hr": 140.0, "cadence": 163.0, "ascent": 116.0, "calories": 283.0}, {"type": "Running", "date": "2025-10-08", "title": "Dublin Running", "distance": 3.36, "time": "00:33:06", "pace": 9.867, "pace_str": "9:52", "best_pace": 8.217, "hr": 149.0, "cadence": 163.0, "ascent": 144.0, "calories": 371.0}, {"type": "Running", "date": "2025-10-10", "title": "Dublin Running", "distance": 3.33, "time": "00:32:26", "pace": 9.75, "pace_str": "9:45", "best_pace": 8.35, "hr": 148.0, "cadence": 168.0, "ascent": 181.0, "calories": 365.0}, {"type": "Running", "date": "2025-10-14", "title": "Dublin Running", "distance": 3.36, "time": "00:34:04", "pace": 10.15, "pace_str": "10:09", "best_pace": 6.917, "hr": 142.0, "cadence": 159.0, "ascent": 191.0, "calories": 365.0}, {"type": "Running", "date": "2025-10-27", "title": "Dublin Running", "distance": 2.51, "time": "00:25:01", "pace": 9.967, "pace_str": "9:58", "best_pace": 8.6, "hr": 150.0, "cadence": 166.0, "ascent": 111.0, "calories": 283.0}, {"type": "Running", "date": "2025-11-03", "title": "Dublin Running", "distance": 3.34, "time": "00:30:57", "pace": 9.267, "pace_str": "9:16", "best_pace": 7.333, "hr": 154.0, "cadence": 165.0, "ascent": 196.0, "calories": 364.0}, {"type": "Running", "date": "2025-11-05", "title": "Dublin Running", "distance": 3.36, "time": "00:34:50", "pace": 10.35, "pace_str": "10:21", "best_pace": 8.65, "hr": 146.0, "cadence": 159.0, "ascent": 166.0, "calories": 379.0}, {"type": "Running", "date": "2025-11-07", "title": "Dublin Running", "distance": 3.33, "time": "00:32:19", "pace": 9.7, "pace_str": "9:42", "best_pace": 8.117, "hr": 152.0, "cadence": 167.0, "ascent": 150.0, "calories": 367.0}, {"type": "Running", "date": "2025-11-10", "title": "Dublin Running", "distance": 3.34, "time": "00:33:14", "pace": 9.95, "pace_str": "9:57", "best_pace": 8.45, "hr": 142.0, "cadence": 167.0, "ascent": 170.0, "calories": 361.0}, {"type": "Running", "date": "2025-11-12", "title": "Dublin Running", "distance": 3.34, "time": "00:32:45", "pace": 9.817, "pace_str": "9:49", "best_pace": 8.533, "hr": 146.0, "cadence": 166.0, "ascent": 176.0, "calories": 364.0}, {"type": "Running", "date": "2025-11-14", "title": "Dublin Running", "distance": 3.34, "time": "00:33:06", "pace": 9.917, "pace_str": "9:55", "best_pace": 8.633, "hr": 147.0, "cadence": 166.0, "ascent": 190.0, "calories": 369.0}, {"type": "Running", "date": "2025-11-18", "title": "Dublin Running", "distance": 3.34, "time": "00:31:46", "pace": 9.5, "pace_str": "9:30", "best_pace": 8.1, "hr": 147.0, "cadence": 168.0, "ascent": 164.0, "calories": 359.0}, {"type": "Running", "date": "2025-12-01", "title": "Dublin Running", "distance": 3.34, "time": "00:34:15", "pace": 10.25, "pace_str": "10:15", "best_pace": 8.983, "hr": 146.0, "cadence": 166.0, "ascent": 170.0, "calories": 379.0}, {"type": "Running", "date": "2025-12-03", "title": "Dublin Running", "distance": 3.34, "time": "00:33:23", "pace": 9.983, "pace_str": "9:59", "best_pace": 8.683, "hr": 152.0, "cadence": 166.0, "ascent": 195.0, "calories": 385.0}, {"type": "Running", "date": "2025-12-08", "title": "Dublin Running", "distance": 3.33, "time": "00:32:27", "pace": 9.733, "pace_str": "9:44", "best_pace": 8.4, "hr": 145.0, "cadence": 167.0, "ascent": 131.0, "calories": 362.0}, {"type": "Running", "date": "2025-12-10", "title": "Dublin Running", "distance": 3.35, "time": "00:33:07", "pace": 9.9, "pace_str": "9:54", "best_pace": 8.35, "hr": 149.0, "cadence": 167.0, "ascent": 152.0, "calories": 374.0}, {"type": "Running", "date": "2025-12-12", "title": "Dublin Running", "distance": 3.35, "time": "00:33:24", "pace": 9.967, "pace_str": "9:58", "best_pace": 8.283, "hr": 148.0, "cadence": 164.0, "ascent": 151.0, "calories": 378.0}, {"type": "Running", "date": "2025-12-15", "title": "Dublin Running", "distance": 3.33, "time": "00:31:43", "pace": 9.517, "pace_str": "9:31", "best_pace": 7.883, "hr": 148.0, "cadence": 169.0, "ascent": 113.0, "calories": 362.0}, {"type": "Running", "date": "2025-12-18", "title": "Dublin Running", "distance": 3.33, "time": "00:31:45", "pace": 9.517, "pace_str": "9:31", "best_pace": 8.267, "hr": 154.0, "cadence": 169.0, "ascent": 163.0, "calories": 371.0}, {"type": "Running", "date": "2025-12-23", "title": "Dublin Running", "distance": 3.34, "time": "00:31:45", "pace": 9.5, "pace_str": "9:30", "best_pace": 8.267, "hr": 146.0, "cadence": 169.0, "ascent": 133.0, "calories": 360.0}, {"type": "Running", "date": "2026-01-05", "title": "Dublin Running", "distance": 3.34, "time": "00:31:47", "pace": 9.5, "pace_str": "9:30", "best_pace": 8.15, "hr": 152.0, "cadence": 159.0, "ascent": 128.0, "calories": 370.0}, {"type": "Running", "date": "2026-01-07", "title": "San Diego Running", "distance": 4.01, "time": "00:35:35", "pace": 8.867, "pace_str": "8:52", "best_pace": 7.067, "hr": 157.0, "cadence": 172.0, "ascent": 33.0, "calories": 427.0}, {"type": "Running", "date": "2026-01-09", "title": "Dublin Running", "distance": 3.33, "time": "00:30:22", "pace": 9.117, "pace_str": "9:07", "best_pace": 8.033, "hr": 154.0, "cadence": 171.0, "ascent": 177.0, "calories": 357.0}, {"type": "Running", "date": "2026-01-12", "title": "Dublin Running", "distance": 3.34, "time": "00:30:46", "pace": 9.2, "pace_str": "9:12", "best_pace": 7.617, "hr": 148.0, "cadence": 170.0, "ascent": 198.0, "calories": 353.0}, {"type": "Running", "date": "2026-01-14", "title": "Dublin Running", "distance": 3.34, "time": "00:31:17", "pace": 9.367, "pace_str": "9:22", "best_pace": 8.283, "hr": 148.0, "cadence": 170.0, "ascent": 168.0, "calories": 359.0}, {"type": "Running", "date": "2026-01-16", "title": "Dublin Running", "distance": 3.35, "time": "00:31:35", "pace": 9.433, "pace_str": "9:26", "best_pace": 8.1, "hr": 145.0, "cadence": 169.0, "ascent": 147.0, "calories": 357.0}, {"type": "Running", "date": "2026-01-18", "title": "Dublin Running", "distance": 5.0, "time": "00:44:41", "pace": 8.933, "pace_str": "8:56", "best_pace": 6.867, "hr": 160.0, "cadence": 167.0, "ascent": 318.0, "calories": 553.0}, {"type": "Running", "date": "2026-01-21", "title": "Dublin Running", "distance": 3.38, "time": "00:32:09", "pace": 9.517, "pace_str": "9:31", "best_pace": 6.217, "hr": 143.0, "cadence": 158.0, "ascent": 157.0, "calories": 361.0}, {"type": "Running", "date": "2026-01-26", "title": "Dublin Running", "distance": 3.34, "time": "00:30:14", "pace": 9.05, "pace_str": "9:03", "best_pace": 7.3, "hr": 150.0, "cadence": 168.0, "ascent": 156.0, "calories": 352.0}, {"type": "Running", "date": "2026-01-28", "title": "Dublin Running", "distance": 3.37, "time": "00:30:27", "pace": 9.033, "pace_str": "9:02", "best_pace": 6.817, "hr": 151.0, "cadence": 160.0, "ascent": 144.0, "calories": 359.0}, {"type": "Running", "date": "2026-01-30", "title": "Dublin Running", "distance": 3.34, "time": "00:30:57", "pace": 9.267, "pace_str": "9:16", "best_pace": 7.417, "hr": 151.0, "cadence": 168.0, "ascent": 143.0, "calories": 362.0}, {"type": "Running", "date": "2026-02-01", "title": "Dublin Running", "distance": 5.01, "time": "00:44:00", "pace": 8.783, "pace_str": "8:47", "best_pace": 6.667, "hr": 162.0, "cadence": 168.0, "ascent": 305.0, "calories": 554.0}, {"type": "Running", "date": "2026-02-03", "title": "Redondo Beach Running", "distance": 4.12, "time": "00:35:38", "pace": 8.633, "pace_str": "8:38", "best_pace": 7.383, "hr": 158.0, "cadence": 172.0, "ascent": 37.0, "calories": 435.0}, {"type": "Running", "date": "2026-02-05", "title": "Redondo Beach Running", "distance": 4.5, "time": "00:39:46", "pace": 8.833, "pace_str": "8:50", "best_pace": 7.817, "hr": 152.0, "cadence": 171.0, "ascent": 23.0, "calories": 468.0}, {"type": "Running", "date": "2026-02-09", "title": "Dublin Running", "distance": 3.34, "time": "00:30:16", "pace": 9.05, "pace_str": "9:03", "best_pace": 7.983, "hr": 143.0, "cadence": 171.0, "ascent": 143.0, "calories": 344.0}, {"type": "Running", "date": "2026-02-15", "title": "Dublin Running", "distance": 3.37, "time": "00:31:18", "pace": 9.283, "pace_str": "9:17", "best_pace": 6.683, "hr": 152.0, "cadence": 162.0, "ascent": 174.0, "calories": 369.0}, {"type": "Running", "date": "2026-02-18", "title": "Dublin Running", "distance": 3.34, "time": "00:29:44", "pace": 8.917, "pace_str": "8:55", "best_pace": 7.183, "hr": 150.0, "cadence": 135.0, "ascent": 137.0, "calories": 354.0}, {"type": "Running", "date": "2026-02-20", "title": "Dublin Running", "distance": 3.34, "time": "00:29:33", "pace": 8.85, "pace_str": "8:51", "best_pace": 6.633, "hr": 153.0, "cadence": 172.0, "ascent": 165.0, "calories": 352.0}, {"type": "Running", "date": "2026-02-23", "title": "Dublin Running", "distance": 3.34, "time": "00:28:49", "pace": 8.633, "pace_str": "8:38", "best_pace": 7.417, "hr": 149.0, "cadence": 171.0, "ascent": 194.0, "calories": 340.0}, {"type": "Running", "date": "2026-02-25", "title": "Dublin Running", "distance": 3.34, "time": "00:29:03", "pace": 8.7, "pace_str": "8:42", "best_pace": 7.35, "hr": 157.0, "cadence": 171.0, "ascent": 170.0, "calories": 358.0}, {"type": "Running", "date": "2026-02-27", "title": "Dublin Running", "distance": 3.37, "time": "00:30:52", "pace": 9.167, "pace_str": "9:10", "best_pace": 6.833, "hr": 149.0, "cadence": 161.0, "ascent": 168.0, "calories": 360.0}, {"type": "Running", "date": "2026-03-01", "title": "Dublin Running", "distance": 5.01, "time": "00:44:57", "pace": 8.983, "pace_str": "8:59", "best_pace": 6.767, "hr": 156.0, "cadence": 164.0, "ascent": 305.0, "calories": 552.0}, {"type": "Running", "date": "2026-03-03", "title": "Dublin Running", "distance": 3.34, "time": "00:28:43", "pace": 8.583, "pace_str": "8:35", "best_pace": 7.483, "hr": 151.0, "cadence": 171.0, "ascent": 129.0, "calories": 345.0}, {"type": "Running", "date": "2026-03-05", "title": "Dublin Running", "distance": 5.0, "time": "00:44:38", "pace": 8.917, "pace_str": "8:55", "best_pace": 6.7, "hr": 147.0, "cadence": 167.0, "ascent": 296.0, "calories": 523.0}, {"type": "Cycling", "date": "2026-03-07", "title": "Dublin Cycling", "distance": 10.1, "time": "00:50:40", "pace": null, "pace_str": "12.0", "best_pace": null, "hr": 129.0, "cadence": null, "ascent": 141.0, "calories": 473.0}, {"type": "Running", "date": "2026-03-09", "title": "Dublin Running", "distance": 5.01, "time": "00:43:51", "pace": 8.75, "pace_str": "8:45", "best_pace": 6.483, "hr": 156.0, "cadence": 164.0, "ascent": 316.0, "calories": 540.0}, {"type": "Running", "date": "2026-03-12", "title": "Dublin Running", "distance": 5.01, "time": "00:43:50", "pace": 8.75, "pace_str": "8:45", "best_pace": 6.983, "hr": 150.0, "cadence": 172.0, "ascent": 311.0, "calories": 524.0}, {"type": "Running", "date": "2026-03-14", "title": "Dublin Running", "distance": 5.01, "time": "00:42:42", "pace": 8.533, "pace_str": "8:32", "best_pace": 6.133, "hr": 157.0, "cadence": 165.0, "ascent": 316.0, "calories": 533.0}, {"type": "Running", "date": "2026-03-16", "title": "Dublin Running", "distance": 3.34, "time": "00:28:18", "pace": 8.467, "pace_str": "8:28", "best_pace": 7.183, "hr": 147.0, "cadence": 173.0, "ascent": 181.0, "calories": 337.0}, {"type": "Walking", "date": "2026-03-18", "title": "San Luis Obispo County Walking", "distance": 0.89, "time": "00:32:00", "pace": 36.05, "pace_str": "36:03", "best_pace": 17.1, "hr": 99.0, "cadence": 82.0, "ascent": 235.0, "calories": 148.0}, {"type": "Running", "date": "2026-03-20", "title": "Dublin Running", "distance": 3.33, "time": "00:29:31", "pace": 8.867, "pace_str": "8:52", "best_pace": 7.5, "hr": 141.0, "cadence": 171.0, "ascent": 144.0, "calories": 341.0}, {"type": "Cycling", "date": "2026-03-21", "title": "Dublin Cycling", "distance": 17.76, "time": "01:24:51", "pace": null, "pace_str": "12.600000000000001", "best_pace": null, "hr": 131.0, "cadence": null, "ascent": 263.0, "calories": 771.0}, {"type": "Running", "date": "2026-03-23", "title": "Dublin Running", "distance": 5.0, "time": "00:44:50", "pace": 8.967, "pace_str": "8:58", "best_pace": 7.283, "hr": 146.0, "cadence": 167.0, "ascent": 335.0, "calories": 525.0}, {"type": "Walking", "date": "2026-03-24", "title": "Dublin Walking", "distance": 2.81, "time": "00:54:36", "pace": 19.45, "pace_str": "19:27", "best_pace": 13.817, "hr": 84.0, "cadence": 108.0, "ascent": 169.0, "calories": 253.0}, {"type": "Running", "date": "2026-03-25", "title": "Dublin Running", "distance": 5.01, "time": "00:43:04", "pace": 8.6, "pace_str": "8:36", "best_pace": 7.0, "hr": 152.0, "cadence": 171.0, "ascent": 343.0, "calories": 527.0}, {"type": "Running", "date": "2026-03-27", "title": "Dublin Running", "distance": 3.33, "time": "00:27:58", "pace": 8.383, "pace_str": "8:23", "best_pace": 6.967, "hr": 148.0, "cadence": 172.0, "ascent": 178.0, "calories": 336.0}, {"type": "Running", "date": "2026-03-31", "title": "Dublin Running", "distance": 3.36, "time": "00:30:14", "pace": 8.983, "pace_str": "8:59", "best_pace": 6.5, "hr": 144.0, "cadence": 163.0, "ascent": 145.0, "calories": 353.0}, {"type": "Running", "date": "2026-04-02", "title": "Dublin Running", "distance": 5.01, "time": "00:43:37", "pace": 8.717, "pace_str": "8:43", "best_pace": 6.617, "hr": 155.0, "cadence": 164.0, "ascent": 304.0, "calories": 545.0}, {"type": "Running", "date": "2026-04-06", "title": "Dublin Running", "distance": 5.0, "time": "00:41:46", "pace": 8.35, "pace_str": "8:21", "best_pace": 6.567, "hr": 156.0, "cadence": 162.0, "ascent": 300.0, "calories": 528.0}, {"type": "Running", "date": "2026-04-08", "title": "Dublin Running", "distance": 5.01, "time": "00:43:08", "pace": 8.6, "pace_str": "8:36", "best_pace": 5.333, "hr": 155.0, "cadence": 166.0, "ascent": 335.0, "calories": 540.0}, {"type": "Running", "date": "2026-04-10", "title": "Dublin Running", "distance": 5.0, "time": "00:44:52", "pace": 8.967, "pace_str": "8:58", "best_pace": 6.6, "hr": 148.0, "cadence": 164.0, "ascent": 343.0, "calories": 533.0}, {"type": "Running", "date": "2026-04-13", "title": "Dublin Running", "distance": 3.36, "time": "00:28:05", "pace": 8.35, "pace_str": "8:21", "best_pace": 6.317, "hr": 144.0, "cadence": 169.0, "ascent": 150.0, "calories": 333.0}, {"type": "Running", "date": "2026-04-16", "title": "Dublin Running", "distance": 5.0, "time": "00:44:45", "pace": 8.933, "pace_str": "8:56", "best_pace": 6.5, "hr": 153.0, "cadence": 159.0, "ascent": 318.0, "calories": 552.0}, {"type": "Cycling", "date": "2026-04-18", "title": "Dublin Cycling", "distance": 30.12, "time": "02:29:36", "pace": null, "pace_str": "12.100000000000001", "best_pace": null, "hr": 131.0, "cadence": null, "ascent": 435.0, "calories": 1257.0}, {"type": "Running", "date": "2026-04-20", "title": "Dublin Running", "distance": 3.34, "time": "00:27:30", "pace": 8.233, "pace_str": "8:14", "best_pace": 7.183, "hr": 148.0, "cadence": 174.0, "ascent": 167.0, "calories": 335.0}, {"type": "Running", "date": "2026-04-22", "title": "Dublin Running", "distance": 3.36, "time": "00:27:18", "pace": 8.133, "pace_str": "8:08", "best_pace": 6.083, "hr": 152.0, "cadence": 171.0, "ascent": 177.0, "calories": 340.0}, {"type": "Running", "date": "2026-04-24", "title": "Dublin Running", "distance": 3.34, "time": "00:26:57", "pace": 8.067, "pace_str": "8:04", "best_pace": 6.3, "hr": 153.0, "cadence": 173.0, "ascent": 165.0, "calories": 338.0}, {"type": "Running", "date": "2026-04-27", "title": "Dublin Running", "distance": 5.0, "time": "00:44:18", "pace": 8.85, "pace_str": "8:51", "best_pace": 6.483, "hr": 148.0, "cadence": 160.0, "ascent": 322.0, "calories": 532.0}, {"type": "Running", "date": "2026-04-29", "title": "Dublin Running", "distance": 5.02, "time": "00:46:56", "pace": 9.35, "pace_str": "9:21", "best_pace": 6.917, "hr": 150.0, "cadence": 157.0, "ascent": 318.0, "calories": 563.0}, {"type": "Running", "date": "2026-05-01", "title": "Dublin Running", "distance": 3.35, "time": "00:27:47", "pace": 8.3, "pace_str": "8:18", "best_pace": 6.8, "hr": 153.0, "cadence": 169.0, "ascent": 145.0, "calories": 349.0}, {"type": "Running", "date": "2026-05-04", "title": "Dublin Running", "distance": 3.35, "time": "00:27:43", "pace": 8.283, "pace_str": "8:17", "best_pace": 6.65, "hr": 146.0, "cadence": 172.0, "ascent": 144.0, "calories": 336.0}, {"type": "Running", "date": "2026-05-06", "title": "Dublin Running", "distance": 3.37, "time": "00:27:39", "pace": 8.217, "pace_str": "8:13", "best_pace": 5.417, "hr": 152.0, "cadence": 167.0, "ascent": 116.0, "calories": 347.0}, {"type": "Running", "date": "2026-05-11", "title": "Dublin Running", "distance": 5.0, "time": "00:45:13", "pace": 9.033, "pace_str": "9:02", "best_pace": 6.217, "hr": 154.0, "cadence": 158.0, "ascent": 285.0, "calories": 565.0}, {"type": "Running", "date": "2026-05-13", "title": "Dublin Running", "distance": 5.0, "time": "00:43:42", "pace": 8.75, "pace_str": "8:45", "best_pace": 5.667, "hr": 156.0, "cadence": 164.0, "ascent": 320.0, "calories": 535.0}, {"type": "Running", "date": "2026-05-15", "title": "Dublin Running", "distance": 3.35, "time": "00:27:41", "pace": 8.25, "pace_str": "8:15", "best_pace": 6.367, "hr": 153.0, "cadence": 170.0, "ascent": 138.0, "calories": 348.0}, {"type": "Running", "date": "2026-05-18", "title": "Dublin Running", "distance": 3.33, "time": "00:27:39", "pace": 8.3, "pace_str": "8:18", "best_pace": 6.95, "hr": 148.0, "cadence": 171.0, "ascent": 187.0, "calories": 338.0}, {"type": "Running", "date": "2026-05-20", "title": "Dublin Running", "distance": 3.34, "time": "00:28:09", "pace": 8.433, "pace_str": "8:26", "best_pace": 7.333, "hr": 150.0, "cadence": 171.0, "ascent": 141.0, "calories": 348.0}, {"type": "Running", "date": "2026-05-22", "title": "Dublin Running", "distance": 3.34, "time": "00:27:07", "pace": 8.117, "pace_str": "8:07", "best_pace": 7.05, "hr": 155.0, "cadence": 173.0, "ascent": 141.0, "calories": 344.0}, {"type": "Running", "date": "2026-05-25", "title": "Dublin Running", "distance": 3.35, "time": "00:27:37", "pace": 8.25, "pace_str": "8:15", "best_pace": 5.983, "hr": 150.0, "cadence": 172.0, "ascent": 145.0, "calories": 340.0}, {"type": "Running", "date": "2026-05-27", "title": "Dublin Running", "distance": 5.0, "time": "00:44:43", "pace": 8.95, "pace_str": "8:57", "best_pace": 6.083, "hr": 152.0, "cadence": 161.0, "ascent": 285.0, "calories": 548.0}, {"type": "Running", "date": "2026-05-29", "title": "Dublin Running", "distance": 5.0, "time": "00:43:38", "pace": 8.717, "pace_str": "8:43", "best_pace": 6.033, "hr": 156.0, "cadence": 162.0, "ascent": 319.0, "calories": 554.0}, {"type": "Running", "date": "2026-06-02", "title": "Dublin Running", "distance": 5.0, "time": "00:42:08", "pace": 8.433, "pace_str": "8:26", "best_pace": 6.15, "hr": 153.0, "cadence": 172.0, "ascent": 330.0, "calories": 528.0}, {"type": "Running", "date": "2026-06-05", "title": "Dublin Running", "distance": 5.03, "time": "00:44:08", "pace": 8.767, "pace_str": "8:46", "best_pace": 5.767, "hr": 155.0, "cadence": 163.0, "ascent": 301.0, "calories": 558.0}, {"type": "Running", "date": "2026-06-08", "title": "Dublin Running", "distance": 3.34, "time": "00:27:59", "pace": 8.367, "pace_str": "8:22", "best_pace": 7.05, "hr": 148.0, "cadence": 172.0, "ascent": 186.0, "calories": 342.0}, {"type": "Running", "date": "2026-06-10", "title": "Dublin Running", "distance": 3.34, "time": "00:28:23", "pace": 8.483, "pace_str": "8:29", "best_pace": 7.117, "hr": 149.0, "cadence": 170.0, "ascent": 166.0, "calories": 350.0}, {"type": "Running", "date": "2026-06-15", "title": "Dublin Running", "distance": 5.01, "time": "00:44:15", "pace": 8.833, "pace_str": "8:50", "best_pace": 6.933, "hr": 150.0, "cadence": 167.0, "ascent": 351.0, "calories": 542.0}, {"type": "Running", "date": "2026-06-17", "title": "Dublin Running", "distance": 5.0, "time": "00:45:44", "pace": 9.15, "pace_str": "9:09", "best_pace": 7.55, "hr": 154.0, "cadence": 163.0, "ascent": 321.0, "calories": 573.0}, {"type": "Running", "date": "2026-06-19", "title": "Dublin Running", "distance": 3.35, "time": "00:27:59", "pace": 8.35, "pace_str": "8:21", "best_pace": 6.9, "hr": 154.0, "cadence": 169.0, "ascent": 190.0, "calories": 356.0}], "monthly": [{"month": "2024-11", "distance": 3.6, "runs": 1, "avg_pace": 8.93, "avg_hr": 149.0}, {"month": "2024-12", "distance": 6.7, "runs": 2, "avg_pace": 9.5, "avg_hr": 151.0}, {"month": "2025-01", "distance": 11.8, "runs": 4, "avg_pace": 9.89, "avg_hr": 145.8}, {"month": "2025-02", "distance": 10.1, "runs": 4, "avg_pace": 9.79, "avg_hr": 149.8}, {"month": "2025-03", "distance": 20.2, "runs": 7, "avg_pace": 9.54, "avg_hr": 149.3}, {"month": "2025-04", "distance": 9.3, "runs": 3, "avg_pace": 9.31, "avg_hr": 155.0}, {"month": "2025-05", "distance": 18.4, "runs": 7, "avg_pace": 10.0, "avg_hr": 146.6}, {"month": "2025-06", "distance": 12.6, "runs": 4, "avg_pace": 9.78, "avg_hr": 153.5}, {"month": "2025-09", "distance": 13.6, "runs": 5, "avg_pace": 10.34, "avg_hr": 149.2}, {"month": "2025-10", "distance": 15.1, "runs": 5, "avg_pace": 10.08, "avg_hr": 145.8}, {"month": "2025-11", "distance": 23.4, "runs": 7, "avg_pace": 9.79, "avg_hr": 147.7}, {"month": "2025-12", "distance": 26.7, "runs": 8, "avg_pace": 9.8, "avg_hr": 148.5}, {"month": "2026-01", "distance": 39.1, "runs": 11, "avg_pace": 9.21, "avg_hr": 150.8}, {"month": "2026-02", "distance": 37.1, "runs": 10, "avg_pace": 8.88, "avg_hr": 152.5}, {"month": "2026-03", "distance": 51.7, "runs": 12, "avg_pace": 8.73, "avg_hr": 149.6}, {"month": "2026-04", "distance": 48.4, "runs": 11, "avg_pace": 8.6, "avg_hr": 151.1}, {"month": "2026-05", "distance": 46.8, "runs": 12, "avg_pace": 8.47, "avg_hr": 152.1}, {"month": "2026-06", "distance": 30.1, "runs": 7, "avg_pace": 8.63, "avg_hr": 151.9}], "weekly": [{"week": "2024-W47", "distance": 3.57, "runs": 1, "avg_pace": 8.93, "avg_hr": 149.0, "time": 31.9}, {"week": "2024-W49", "distance": 3.36, "runs": 1, "avg_pace": 9.58, "avg_hr": 150.0, "time": 32.2}, {"week": "2024-W50", "distance": 3.34, "runs": 1, "avg_pace": 9.42, "avg_hr": 152.0, "time": 31.4}, {"week": "2025-W03", "distance": 5.04, "runs": 2, "avg_pace": 10.16, "avg_hr": 140.5, "time": 51.3}, {"week": "2025-W04", "distance": 6.73, "runs": 2, "avg_pace": 9.62, "avg_hr": 151.0, "time": 64.7}, {"week": "2025-W07", "distance": 2.52, "runs": 1, "avg_pace": 9.63, "avg_hr": 146.0, "time": 24.3}, {"week": "2025-W08", "distance": 2.53, "runs": 1, "avg_pace": 9.33, "avg_hr": 161.0, "time": 23.6}, {"week": "2025-W09", "distance": 8.46, "runs": 3, "avg_pace": 9.79, "avg_hr": 149.7, "time": 82.3}, {"week": "2025-W10", "distance": 3.36, "runs": 1, "avg_pace": 9.42, "avg_hr": 149.0, "time": 31.7}, {"week": "2025-W11", "distance": 2.51, "runs": 1, "avg_pace": 9.85, "avg_hr": 139.0, "time": 24.8}, {"week": "2025-W12", "distance": 2.53, "runs": 1, "avg_pace": 9.57, "avg_hr": 150.0, "time": 24.2}, {"week": "2025-W13", "distance": 8.42, "runs": 3, "avg_pace": 9.57, "avg_hr": 150.0, "time": 80.2}, {"week": "2025-W14", "distance": 6.73, "runs": 2, "avg_pace": 9.11, "avg_hr": 154.0, "time": 61.3}, {"week": "2025-W18", "distance": 5.64, "runs": 2, "avg_pace": 9.95, "avg_hr": 149.5, "time": 56.2}, {"week": "2025-W19", "distance": 4.35, "runs": 2, "avg_pace": 9.57, "avg_hr": 151.0, "time": 41.6}, {"week": "2025-W20", "distance": 2.52, "runs": 1, "avg_pace": 9.97, "avg_hr": 147.0, "time": 25.1}, {"week": "2025-W21", "distance": 5.06, "runs": 2, "avg_pace": 10.47, "avg_hr": 145.0, "time": 52.9}, {"week": "2025-W22", "distance": 6.71, "runs": 2, "avg_pace": 9.65, "avg_hr": 149.0, "time": 64.8}, {"week": "2025-W23", "distance": 3.34, "runs": 1, "avg_pace": 9.48, "avg_hr": 159.0, "time": 31.7}, {"week": "2025-W24", "distance": 5.9, "runs": 2, "avg_pace": 10.07, "avg_hr": 151.0, "time": 59.2}, {"week": "2025-W36", "distance": 2.52, "runs": 1, "avg_pace": 9.78, "avg_hr": 159.0, "time": 24.7}, {"week": "2025-W37", "distance": 2.51, "runs": 1, "avg_pace": 10.32, "avg_hr": 153.0, "time": 25.9}, {"week": "2025-W38", "distance": 3.6, "runs": 1, "avg_pace": 10.73, "avg_hr": 145.0, "time": 38.7}, {"week": "2025-W39", "distance": 5.02, "runs": 2, "avg_pace": 10.44, "avg_hr": 144.5, "time": 52.5}, {"week": "2025-W41", "distance": 9.2, "runs": 3, "avg_pace": 10.09, "avg_hr": 145.7, "time": 92.2}, {"week": "2025-W42", "distance": 3.36, "runs": 1, "avg_pace": 10.15, "avg_hr": 142.0, "time": 34.1}, {"week": "2025-W44", "distance": 2.51, "runs": 1, "avg_pace": 9.97, "avg_hr": 150.0, "time": 25.0}, {"week": "2025-W45", "distance": 10.03, "runs": 3, "avg_pace": 9.77, "avg_hr": 150.7, "time": 98.1}, {"week": "2025-W46", "distance": 10.02, "runs": 3, "avg_pace": 9.89, "avg_hr": 145.0, "time": 99.1}, {"week": "2025-W47", "distance": 3.34, "runs": 1, "avg_pace": 9.5, "avg_hr": 147.0, "time": 31.8}, {"week": "2025-W49", "distance": 6.68, "runs": 2, "avg_pace": 10.12, "avg_hr": 149.0, "time": 67.6}, {"week": "2025-W50", "distance": 10.03, "runs": 3, "avg_pace": 9.87, "avg_hr": 147.3, "time": 99.0}, {"week": "2025-W51", "distance": 6.66, "runs": 2, "avg_pace": 9.52, "avg_hr": 151.0, "time": 63.5}, {"week": "2025-W52", "distance": 3.34, "runs": 1, "avg_pace": 9.5, "avg_hr": 146.0, "time": 31.8}, {"week": "2026-W02", "distance": 10.68, "runs": 3, "avg_pace": 9.16, "avg_hr": 154.3, "time": 97.7}, {"week": "2026-W03", "distance": 15.03, "runs": 4, "avg_pace": 9.23, "avg_hr": 150.2, "time": 138.3}, {"week": "2026-W04", "distance": 3.38, "runs": 1, "avg_pace": 9.52, "avg_hr": 143.0, "time": 32.1}, {"week": "2026-W05", "distance": 15.06, "runs": 4, "avg_pace": 9.03, "avg_hr": 153.5, "time": 135.6}, {"week": "2026-W06", "distance": 8.62, "runs": 2, "avg_pace": 8.73, "avg_hr": 155.0, "time": 75.4}, {"week": "2026-W07", "distance": 6.71, "runs": 2, "avg_pace": 9.17, "avg_hr": 147.5, "time": 61.6}, {"week": "2026-W08", "distance": 6.68, "runs": 2, "avg_pace": 8.88, "avg_hr": 151.5, "time": 59.3}, {"week": "2026-W09", "distance": 15.06, "runs": 4, "avg_pace": 8.87, "avg_hr": 152.8, "time": 133.7}, {"week": "2026-W10", "distance": 8.34, "runs": 2, "avg_pace": 8.75, "avg_hr": 149.0, "time": 73.3}, {"week": "2026-W11", "distance": 15.03, "runs": 3, "avg_pace": 8.68, "avg_hr": 154.3, "time": 130.4}, {"week": "2026-W12", "distance": 6.67, "runs": 2, "avg_pace": 8.67, "avg_hr": 144.0, "time": 57.8}, {"week": "2026-W13", "distance": 13.34, "runs": 3, "avg_pace": 8.65, "avg_hr": 148.7, "time": 115.9}, {"week": "2026-W14", "distance": 8.37, "runs": 2, "avg_pace": 8.85, "avg_hr": 149.5, "time": 73.8}, {"week": "2026-W15", "distance": 15.01, "runs": 3, "avg_pace": 8.64, "avg_hr": 153.0, "time": 129.8}, {"week": "2026-W16", "distance": 8.36, "runs": 2, "avg_pace": 8.64, "avg_hr": 148.5, "time": 72.8}, {"week": "2026-W17", "distance": 10.04, "runs": 3, "avg_pace": 8.14, "avg_hr": 151.0, "time": 81.8}, {"week": "2026-W18", "distance": 13.37, "runs": 3, "avg_pace": 8.83, "avg_hr": 150.3, "time": 119.0}, {"week": "2026-W19", "distance": 6.72, "runs": 2, "avg_pace": 8.25, "avg_hr": 149.0, "time": 55.4}, {"week": "2026-W20", "distance": 13.35, "runs": 3, "avg_pace": 8.68, "avg_hr": 154.3, "time": 116.6}, {"week": "2026-W21", "distance": 10.01, "runs": 3, "avg_pace": 8.28, "avg_hr": 151.0, "time": 82.9}, {"week": "2026-W22", "distance": 13.35, "runs": 3, "avg_pace": 8.64, "avg_hr": 152.7, "time": 116.0}, {"week": "2026-W23", "distance": 10.03, "runs": 2, "avg_pace": 8.6, "avg_hr": 154.0, "time": 86.3}, {"week": "2026-W24", "distance": 6.68, "runs": 2, "avg_pace": 8.43, "avg_hr": 148.5, "time": 56.4}, {"week": "2026-W25", "distance": 13.36, "runs": 3, "avg_pace": 8.78, "avg_hr": 152.7, "time": 118.0}], "plan": [{"w": 1, "phase": "Base", "mon": "Rest", "tue": "4 mi easy @ 9:15", "wed": "Cross-train 30 min", "thu": "4 mi easy + 4 strides", "fri": "Rest", "sat": "3 mi easy", "sun": "6 mi long @ 9:15", "miles": 17, "focus": "Re-establish weekly rhythm. All conversational."}, {"w": 2, "phase": "Base", "mon": "Rest", "tue": "5 mi easy @ 9:00", "wed": "Cross-train 30 min", "thu": "4 mi easy + 6 strides", "fri": "Rest", "sat": "3 mi easy", "sun": "7 mi long @ 9:00", "miles": 19, "focus": "Volume bump. Cap HR at 155."}, {"w": 3, "phase": "Base", "mon": "Rest", "tue": "5 mi w/ 4\u00d730s pickups", "wed": "3 mi recovery", "thu": "5 mi easy @ 8:50", "fri": "Rest", "sat": "3 mi easy", "sun": "8 mi long @ 8:50", "miles": 24, "focus": "First aerobic stimulus. Pickups, not intervals."}, {"w": 4, "phase": "Base (Cutback)", "mon": "Rest", "tue": "4 mi easy", "wed": "Cross-train", "thu": "4 mi easy + 6 strides", "fri": "Rest", "sat": "Rest", "sun": "6 mi long @ 8:50", "miles": 14, "focus": "Recovery week. Drop volume ~40%."}, {"w": 5, "phase": "Build", "mon": "Rest", "tue": "6 mi: 2 wu + 3 mi tempo @ 8:00 + 1 cd", "wed": "4 mi recovery @ 9:15", "thu": "5 mi easy + 6 strides", "fri": "Rest", "sat": "3 mi easy", "sun": "8 mi long @ 8:45", "miles": 26, "focus": "First tempo. Lactate threshold work."}, {"w": 6, "phase": "Build", "mon": "Rest", "tue": "6 mi: 1 wu + 5\u00d7800m @ 7:00 (400 jog) + 1 cd", "wed": "4 mi recovery", "thu": "5 mi easy + 6 strides", "fri": "Rest", "sat": "4 mi easy", "sun": "9 mi long @ 8:45", "miles": 28, "focus": "VO2max intervals. Hit splits."}, {"w": 7, "phase": "Build", "mon": "Rest", "tue": "7 mi: 2 wu + 4 mi tempo @ 7:50 + 1 cd", "wed": "4 mi recovery", "thu": "5 mi easy + 8 strides", "fri": "Rest", "sat": "4 mi easy", "sun": "10 mi long @ 8:40", "miles": 30, "focus": "Threshold extension. Long run breaks 10."}, {"w": 8, "phase": "Build (Cutback)", "mon": "Rest", "tue": "5 mi easy + 6 strides", "wed": "Cross-train", "thu": "4 mi easy", "fri": "Rest", "sat": "Rest", "sun": "8 mi @ 8:45", "miles": 17, "focus": "Absorb the work. Sleep + nutrition focus."}, {"w": 9, "phase": "Peak", "mon": "Rest", "tue": "7 mi: 2 wu + 6\u00d71000m @ 6:55 (90s rec) + 1 cd", "wed": "4 mi recovery", "thu": "6 mi: 1 wu + 4 mi @ 7:40 + 1 cd", "fri": "Rest", "sat": "4 mi easy", "sun": "10 mi long @ 8:30", "miles": 31, "focus": "Stack quality. Tempo at goal-adjacent pace."}, {"w": 10, "phase": "Peak", "mon": "Rest", "tue": "7 mi: 2 wu + 5\u00d71200m @ 7:00 (400 jog) + 0.5 cd", "wed": "4 mi recovery", "thu": "7 mi: 2 wu + 4 mi @ 7:30 (goal pace) + 1 cd", "fri": "Rest", "sat": "4 mi easy", "sun": "11 mi long @ 8:30", "miles": 33, "focus": "Goal pace dress rehearsal."}, {"w": 11, "phase": "Peak", "mon": "Rest", "tue": "6 mi: 2 wu + 3 mi @ 7:25 + 1 cd", "wed": "4 mi recovery", "thu": "5 mi easy + 6 strides", "fri": "Rest", "sat": "3 mi easy", "sun": "8 mi long @ 8:30", "miles": 26, "focus": "Volume drops, intensity sharp."}, {"w": 12, "phase": "Taper / Test", "mon": "Rest", "tue": "4 mi w/ 4\u00d7400m @ 6:45 (full rec)", "wed": "3 mi easy", "thu": "3 mi easy + 4 strides", "fri": "Rest", "sat": "2 mi shakeout", "sun": "5K Time Trial @ 7:30", "miles": 17, "focus": "Goal: hold 7:30 for 3.1 miles. Fresh legs."}]};
+
+// ===== Stats =====
+function paceStr(p) {
+  if (!p) return '—';
+  const m = Math.floor(p);
+  const s = Math.round((p - m) * 60);
+  return m + ':' + String(s).padStart(2,'0');
+}
+
+const running = DATA.activities.filter(a => a.type === 'Running');
+const cycling = DATA.activities.filter(a => a.type === 'Cycling');
+const totalMiles = running.reduce((s,r)=>s+r.distance, 0);
+const totalRuns = running.length;
+const totalCycleMiles = cycling.reduce((s,r)=>s+r.distance, 0);
+const allPaces = running.map(r=>r.pace).filter(p=>p);
+const bestPace = Math.min(...allPaces);
+const recentRuns = running.slice(-10);
+const recentPace = recentRuns.reduce((s,r)=>s+r.pace,0)/recentRuns.length;
+const earlyRuns = running.slice(0,10);
+const earlyPace = earlyRuns.reduce((s,r)=>s+r.pace,0)/earlyRuns.length;
+const paceImprovement = earlyPace - recentPace;
+const totalTime = running.reduce((s,r)=>s+(r.distance*r.pace),0); // minutes
+
+const stats = [
+  { label: 'Total Runs', value: totalRuns, sub: '20 months' },
+  { label: 'Total Miles', value: totalMiles.toFixed(1), sub: 'across all runs' },
+  { label: 'Best Pace', value: paceStr(bestPace), sub: 'single run avg' },
+  { label: 'Current Avg (last 10)', value: paceStr(recentPace), sub: 'Goal: 7:30 — ' + paceStr(recentPace - 7.5) + ' to go' },
+  { label: 'Pace Improvement', value: '−' + Math.round(paceImprovement*60) + 's', sub: 'first 10 vs last 10 runs', delta: 'up' },
+  { label: 'Avg HR (running)', value: Math.round(running.reduce((s,r)=>s+(r.hr||0),0)/running.filter(r=>r.hr).length), sub: 'moderate aerobic' },
+  { label: 'Cycling Miles', value: totalCycleMiles.toFixed(1), sub: cycling.length + ' rides · cross-training' },
+];
+
+const statsEl = document.getElementById('stats');
+stats.forEach(s => {
+  const div = document.createElement('div');
+  div.className = 'stat';
+  div.innerHTML = `
+    <div class="label">${s.label}</div>
+    <div class="value">${s.value}</div>
+    <div class="sub">${s.sub}</div>
+    ${s.delta ? `<div class="delta ${s.delta}">↑ improving</div>` : ''}
+  `;
+  statsEl.appendChild(div);
+});
+
+// ===== Pace color scale =====
+// Map pace (lower = better) to a color from green -> yellow -> orange -> red
+function paceColor(pace) {
+  // domain: 7.0 (best) -> 11.0 (slowest)
+  const t = Math.max(0, Math.min(1, (pace - 7.0) / 4.0));
+  // hue: 140 (green) -> 50 (yellow) -> 15 (orange) -> 0 (red)
+  const hue = 140 - t * 140;
+  const sat = 65;
+  const light = 50 - t * 5;
+  return `hsl(${hue}, ${sat}%, ${light}%)`;
+}
+
+// Legend bar
+const legendBar = document.getElementById('legend-bar');
+for (let i = 0; i < 20; i++) {
+  const seg = document.createElement('div');
+  seg.style.background = paceColor(7.0 + (i/19) * 4);
+  legendBar.appendChild(seg);
+}
+
+// ===== Calendar =====
+// Build a map of date -> activity
+const actByDate = {};
+DATA.activities.forEach(a => {
+  if (!actByDate[a.date]) actByDate[a.date] = [];
+  actByDate[a.date].push(a);
+});
+
+// Trailing 12 months ending at the latest month of "today" — laid out in a 3×4 grid
+const today = new Date('2026-06-23');
+const months = [];
+{
+  let yr = today.getFullYear();
+  let mo = today.getMonth() + 1; // 1..12
+  for (let i = 0; i < 12; i++) {
+    months.unshift({ year: yr, month: mo });
+    mo--;
+    if (mo < 1) { mo = 12; yr--; }
+  }
+}
+const cal = document.getElementById('calendar');
+const tooltip = document.getElementById('tooltip');
+
+const weekdayLabels = ['S','M','T','W','T','F','S'];
+const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+months.forEach(m => {
+  const monthEl = document.createElement('div');
+  monthEl.className = 'cal-month';
+
+  const label = document.createElement('div');
+  label.className = 'cal-month-label';
+  label.textContent = monthNames[m.month-1] + ' ' + m.year;
+  monthEl.appendChild(label);
+
+  // Weekday headers (Sun start)
+  const wkRow = document.createElement('div');
+  wkRow.className = 'cal-weekday-row';
+  weekdayLabels.forEach(w => {
+    const c = document.createElement('div');
+    c.className = 'cal-weekday';
+    c.textContent = w;
+    wkRow.appendChild(c);
+  });
+  monthEl.appendChild(wkRow);
+
+  const days = document.createElement('div');
+  days.className = 'cal-days';
+
+  // Day of week for the 1st (0=Sun..6=Sat). Use local date construction.
+  const firstDow = new Date(m.year, m.month-1, 1).getDay();
+  const daysInMonth = new Date(m.year, m.month, 0).getDate();
+
+  // Leading blanks
+  for (let i = 0; i < firstDow; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cal-day empty';
+    days.appendChild(blank);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const cell = document.createElement('div');
+    cell.className = 'cal-day';
+    cell.textContent = d;
+    const dateStr = `${m.year}-${String(m.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const cellDate = new Date(m.year, m.month-1, d);
+    if (cellDate > today) {
+      cell.classList.add('future');
+    } else if (actByDate[dateStr]) {
+      const acts = actByDate[dateStr];
+      const runs = acts.filter(a=>a.type==='Running');
+      const rides = acts.filter(a=>a.type==='Cycling');
+      const walks = acts.filter(a=>a.type==='Walking');
+      cell.classList.add('has-activity');
+      const parts = [];
+      if (runs.length > 0) {
+        const avgPace = runs.reduce((s,a)=>s+a.pace,0) / runs.length;
+        cell.style.background = paceColor(avgPace);
+        parts.push(`${runs[0].title} · ${runs[0].distance.toFixed(2)} mi @ ${runs[0].pace_str} · HR ${runs[0].hr || '?'}`);
+        if (rides.length > 0) cell.classList.add('has-cycling-marker');
+      } else if (rides.length > 0) {
+        cell.classList.add('is-cycling');
+      } else if (walks.length > 0) {
+        cell.classList.add('is-walking');
+      } else {
+        cell.style.background = '#3a4854';
+      }
+      if (rides.length > 0) parts.push(`Cycling · ${rides[0].distance.toFixed(1)} mi · ${rides[0].time}`);
+      if (walks.length > 0 && runs.length === 0) parts.push(`Walking · ${walks[0].distance.toFixed(2)} mi`);
+      cell.dataset.info = `${dateStr} · ` + (parts.length ? parts.join(' | ') : acts[0].type);
+      cell.addEventListener('mouseenter', e => {
+        tooltip.textContent = cell.dataset.info;
+        tooltip.style.opacity = '1';
+      });
+      cell.addEventListener('mousemove', e => {
+        tooltip.style.left = (e.pageX + 14) + 'px';
+        tooltip.style.top = (e.pageY + 14) + 'px';
+      });
+      cell.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+    }
+    days.appendChild(cell);
+  }
+  monthEl.appendChild(days);
+  cal.appendChild(monthEl);
+});
+
+// ===== Charts =====
+Chart.defaults.color = '#8b96a3';
+Chart.defaults.borderColor = '#2d3640';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
+// Monthly mileage
+new Chart(document.getElementById('monthlyChart'), {
+  type: 'bar',
+  data: {
+    labels: DATA.monthly.map(m => m.month),
+    datasets: [{
+      label: 'Miles',
+      data: DATA.monthly.map(m => m.distance),
+      backgroundColor: DATA.monthly.map(m => paceColor(m.avg_pace)),
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          afterBody: (items) => {
+            const m = DATA.monthly[items[0].dataIndex];
+            return [`${m.runs} runs`, `Avg pace: ${paceStr(m.avg_pace)}`];
+          }
+        }
+      }
+    },
+    scales: {
+      y: { beginAtZero: true, title: { display: true, text: 'Miles', color: '#8b96a3' } }
+    }
+  }
+});
+
+// Monthly pace — burndown style: y-axis NOT reversed, so line descends toward 7:30 goal
+new Chart(document.getElementById('paceChart'), {
+  type: 'line',
+  data: {
+    labels: DATA.monthly.map(m => m.month),
+    datasets: [{
+      label: 'Avg pace (min/mi)',
+      data: DATA.monthly.map(m => m.avg_pace),
+      borderColor: '#ff6b35',
+      backgroundColor: 'rgba(255,107,53,0.18)',
+      tension: 0.3,
+      // Fill the area between the line and the 7:30 goal — the "burndown gap"
+      fill: { target: { value: 7.5 }, above: 'rgba(255,107,53,0.18)', below: 'rgba(78,201,176,0.18)' },
+      pointBackgroundColor: DATA.monthly.map(m => paceColor(m.avg_pace)),
+      pointRadius: 6,
+      pointBorderColor: '#0f1419',
+      pointBorderWidth: 2,
+    },
+    {
+      label: 'Goal: 7:30',
+      data: DATA.monthly.map(() => 7.5),
+      borderColor: '#c084fc',
+      borderDash: [6, 4],
+      pointRadius: 0,
+      fill: false,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      subtitle: {
+        display: true,
+        text: 'Burndown to 7:30 — shaded area is the remaining gap',
+        color: '#8b96a3',
+        font: { size: 11 },
+        padding: { bottom: 8 }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => `${ctx.dataset.label}: ${paceStr(ctx.parsed.y)}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        reverse: false,
+        suggestedMin: 7.0,
+        title: { display: true, text: 'min/mile (target: 7:30)', color: '#8b96a3' },
+        ticks: { callback: v => paceStr(v) }
+      }
+    }
+  }
+});
+
+// Per-run pace with rolling avg
+const runsByDate = [...running].sort((a,b) => a.date.localeCompare(b.date));
+const rolling = [];
+for (let i = 0; i < runsByDate.length; i++) {
+  const slice = runsByDate.slice(Math.max(0, i-4), i+1);
+  rolling.push(slice.reduce((s,r)=>s+r.pace, 0) / slice.length);
+}
+
+new Chart(document.getElementById('runPaceChart'), {
+  type: 'line',
+  data: {
+    labels: runsByDate.map(r => r.date),
+    datasets: [
+      {
+        label: 'Run pace',
+        data: runsByDate.map(r => r.pace),
+        showLine: false,
+        pointBackgroundColor: runsByDate.map(r => paceColor(r.pace)),
+        pointRadius: 4,
+        pointBorderWidth: 0,
+      },
+      {
+        label: '5-run rolling avg',
+        data: rolling,
+        borderColor: '#4ec9b0',
+        backgroundColor: 'rgba(78,201,176,0.1)',
+        borderWidth: 2,
+        tension: 0.3,
+        pointRadius: 0,
+        fill: false,
+      },
+      {
+        label: 'Goal: 7:30',
+        data: runsByDate.map(() => 7.5),
+        borderColor: '#c084fc',
+        borderDash: [6, 4],
+        pointRadius: 0,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            if (ctx.dataset.label === 'Run pace') {
+              const r = runsByDate[ctx.dataIndex];
+              return `${r.distance.toFixed(2)} mi @ ${r.pace_str} · HR ${r.hr || '?'}`;
+            }
+            return ctx.dataset.label + ': ' + paceStr(ctx.parsed.y);
+          }
+        }
+      }
+    },
+    scales: {
+      x: { ticks: { maxTicksLimit: 10 } },
+      y: {
+        reverse: true,
+        title: { display: true, text: 'min/mile', color: '#8b96a3' },
+        ticks: { callback: v => paceStr(v) }
+      }
+    }
+  }
+});
+
+// HR vs pace scatter
+// Build HR vs Pace data — color a fixed bright cyan, modulate opacity by recency
+// so older runs fade into the background and recent runs pop.
+const hrRuns = running.filter(r => r.hr);
+const hrRunsSorted = [...hrRuns].sort((a,b) => a.date.localeCompare(b.date));
+const recencyAlpha = (i, total) => {
+  // 0.18 at oldest → 1.0 at newest, slight gamma so the most recent really stand out
+  const t = total <= 1 ? 1 : i / (total - 1);
+  return 0.18 + Math.pow(t, 1.4) * 0.82;
+};
+const hrBg = hrRunsSorted.map((r, i) => {
+  const a = recencyAlpha(i, hrRunsSorted.length);
+  return `rgba(78, 201, 176, ${a.toFixed(2)})`; // teal/cyan
+});
+const hrBorder = hrRunsSorted.map((r, i) => {
+  // Highlight the most recent ~8 runs with a bright outline
+  const isRecent = i >= hrRunsSorted.length - 8;
+  return isRecent ? 'rgba(255, 235, 200, 0.95)' : 'rgba(255,255,255,0.15)';
+});
+const hrBorderWidth = hrRunsSorted.map((r, i) => i >= hrRunsSorted.length - 8 ? 2 : 1);
+const hrRadius = hrRunsSorted.map((r, i) => {
+  const isRecent = i >= hrRunsSorted.length - 8;
+  return (3 + r.distance * 0.9) * (isRecent ? 1.15 : 1);
+});
+
+new Chart(document.getElementById('hrPaceChart'), {
+  type: 'scatter',
+  data: {
+    datasets: [{
+      label: 'Run',
+      data: hrRunsSorted.map(r => ({ x: r.hr, y: r.pace, run: r })),
+      backgroundColor: hrBg,
+      borderColor: hrBorder,
+      borderWidth: hrBorderWidth,
+      pointRadius: hrRadius,
+      pointHoverRadius: hrRadius.map(r => r + 2),
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      subtitle: {
+        display: true,
+        text: 'Brighter = more recent · Outlined = last 8 runs · Size = distance',
+        color: '#8b96a3',
+        font: { size: 11 },
+        padding: { bottom: 8 }
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const r = ctx.raw.run;
+            return `${r.date} · ${r.distance.toFixed(2)} mi @ ${r.pace_str} · HR ${r.hr}`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { title: { display: true, text: 'Avg HR (bpm)', color: '#8b96a3' } },
+      y: {
+        reverse: true,
+        title: { display: true, text: 'Pace (min/mi)', color: '#8b96a3' },
+        ticks: { callback: v => paceStr(v) }
+      }
+    }
+  }
+});
+
+// ===== Insights =====
+// --- Cycling vs running correlation: compare 14-day windows before & after each ride ---
+const W = 14; // days
+function paceWindow(rideDate, side /* 'before' | 'after' */) {
+  const rd = new Date(rideDate);
+  return running.filter(r => {
+    const days = (new Date(r.date) - rd) / 86400000;
+    return side === 'before' ? (days < 0 && days >= -W) : (days > 0 && days <= W);
+  });
+}
+const rideDeltas = cycling.map(ride => {
+  const before = paceWindow(ride.date, 'before');
+  const after  = paceWindow(ride.date, 'after');
+  if (!before.length || !after.length) return null;
+  const bp = before.reduce((s,r)=>s+r.pace,0) / before.length;
+  const ap = after.reduce((s,r)=>s+r.pace,0)  / after.length;
+  return (bp - ap) * 60; // seconds/mile improvement
+}).filter(x => x !== null);
+const avgRideEffect = rideDeltas.length
+  ? rideDeltas.reduce((s,x)=>s+x,0) / rideDeltas.length
+  : 0;
+const positiveRides = rideDeltas.filter(x => x > 0).length;
+// Average pace in weeks that include a ride vs run-only weeks
+const weekKey = d => {
+  const dt = new Date(d);
+  // Use ISO week-ish: anchor on Monday
+  const day = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1));
+  const wk = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return dt.getUTCFullYear() + '-W' + String(wk).padStart(2,'0');
+};
+const wkAgg = {};
+DATA.activities.forEach(a => {
+  const k = weekKey(a.date);
+  if (!wkAgg[k]) wkAgg[k] = { runDist: 0, paceW: 0, paceD: 0, cycleDist: 0 };
+  if (a.type === 'Running' && a.pace) {
+    wkAgg[k].runDist += a.distance;
+    wkAgg[k].paceW   += a.pace * a.distance;
+    wkAgg[k].paceD   += a.distance;
+  } else if (a.type === 'Cycling') {
+    wkAgg[k].cycleDist += a.distance;
+  }
+});
+const wkRunPace = w => w.paceD ? w.paceW / w.paceD : null;
+const wksWithCycle = Object.values(wkAgg).filter(w => w.cycleDist > 0 && w.paceD > 0);
+const wksRunOnly   = Object.values(wkAgg).filter(w => w.cycleDist === 0 && w.paceD > 0);
+const paceWithCycle = wksWithCycle.length
+  ? wksWithCycle.reduce((s,w)=>s+wkRunPace(w),0) / wksWithCycle.length : null;
+const paceRunOnly = wksRunOnly.length
+  ? wksRunOnly.reduce((s,w)=>s+wkRunPace(w),0) / wksRunOnly.length : null;
+
+const cycleInsight = (cycling.length >= 3 && avgRideEffect > 3)
+  ? `<strong>Cycling looks correlated with faster running.</strong> After your ${cycling.length} rides this year, the average pace in the next 14 days was <strong>${avgRideEffect.toFixed(1)} sec/mi faster</strong> than the 14 days before (${positiveRides}/${rideDeltas.length} rides showed improvement). Weeks that included a ride averaged ${paceStr(paceWithCycle)} vs ${paceStr(paceRunOnly)} in run-only weeks. Some of this is timing — rides cluster in your fitter months — but the pattern is real: <strong>aerobic time on the bike adds capacity without the leg pounding.</strong> Keep a weekly easy ride in the plan.`
+  : `<strong>Cycling sample is small (${cycling.length} rides)</strong> — too few to draw a strong correlation. The biggest ride (Apr 18, 30 mi) was followed by a string of sub-8:15 runs, including your 8:04 PR six days later.`;
+
+const insightItems = [
+  `<strong>Pace dropped from mid-2025 (~10:00) to now (~${paceStr(recentPace)})</strong> — a huge aerobic gain over the past year, even with a slight early-June plateau.`,
+  `<strong>Volume is the lever.</strong> Monthly mileage went from ~15 to ~50 mi/mo when training got consistent in Jan 2026, and pace followed.`,
+  `<strong>HR stayed flat at ~150</strong> while pace got faster — classic sign of improving aerobic efficiency. You're running well under a minute/mile quicker for the same effort.`,
+  cycleInsight,
+  `<strong>5-mile runs are now a regular fixture</strong> (24 of your last ${totalRuns} runs), up from mostly 3.3 mi loops a year ago. The longer runs run a touch slower on average, which is expected — and exactly what builds the aerobic base for the goal pace.`,
+  `<strong>Cadence climbed from ~158 to ~170 spm</strong> over the year — better turnover, less ground contact time.`,
+  `<strong>Best single run: ${paceStr(bestPace)}</strong> (Apr 24, 2026). You've already touched paces near the goal — now make them sustainable.`,
+  `<strong>Gap to 7:30 = ${Math.round((recentPace - 7.5)*60)} seconds.</strong> The last 10 runs ticked up slightly with longer distances — stay patient, the volume will pay off.`,
+];
+const insightsEl = document.getElementById('insights');
+insightItems.forEach(t => {
+  const li = document.createElement('li');
+  li.innerHTML = t;
+  insightsEl.appendChild(li);
+});
+
+// ===== Zones =====
+const zones = [
+  { cls: 'easy', name: 'Easy / Recovery', pace: '9:00 – 9:30', desc: 'Conversational. 70–80% of weekly miles. HR < 150.' },
+  { cls: 'long', name: 'Long Run', pace: '8:45 – 9:15', desc: 'Steady aerobic. Build endurance. Once a week.' },
+  { cls: 'tempo', name: 'Tempo / Threshold', pace: '7:45 – 8:00', desc: '"Comfortably hard." Once a week, 20–40 min total.' },
+  { cls: 'interval', name: 'VO₂ Intervals', pace: '6:45 – 7:10', desc: '400–1200m reps with jog recovery. Builds top-end.' },
+  { cls: 'goal', name: 'Goal Pace', pace: '7:30', desc: 'Race specificity. Insert in peak weeks.' },
+];
+const zonesEl = document.getElementById('zones');
+zones.forEach(z => {
+  const div = document.createElement('div');
+  div.className = 'zone-card ' + z.cls;
+  div.innerHTML = `<div class="name">${z.name}</div><div class="pace">${z.pace}</div><div class="desc">${z.desc}</div>`;
+  zonesEl.appendChild(div);
+});
+
+// ===== Plan table =====
+const tbody = document.querySelector('#planTable tbody');
+DATA.plan.forEach(p => {
+  const tr = document.createElement('tr');
+  const phaseClass = 'phase-' + p.phase.replace(/[\s\/\(\)]/g,'-').replace('--','-');
+  tr.innerHTML = `
+    <td class="week-col">${p.w}</td>
+    <td><span class="phase-badge ${phaseClass}">${p.phase}</span></td>
+    <td>${p.mon}</td>
+    <td>${p.tue}</td>
+    <td>${p.wed}</td>
+    <td>${p.thu}</td>
+    <td>${p.fri}</td>
+    <td>${p.sat}</td>
+    <td>${p.sun}</td>
+    <td><strong>${p.miles}</strong></td>
+    <td style="color:var(--muted);max-width:240px;">${p.focus}</td>
+  `;
+  tbody.appendChild(tr);
+});
+</script>
+</body>
+</html>
